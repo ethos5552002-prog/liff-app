@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>電梯廠調度小幫手</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, sans-serif; padding: 20px; background-color: #f4f5f7;}
+    .container { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+    .tab { flex: 1; text-align: center; padding: 12px; cursor: pointer; font-size: 16px; font-weight: bold; color: #999; transition: 0.3s;}
+    .tab.active { color: #00B900; border-bottom: 4px solid #00B900; margin-bottom: -2px; }
+    .tab-repair.active { color: #E53935; border-bottom: 4px solid #E53935; margin-bottom: -2px; }
+    label { display: block; margin-top: 15px; font-weight: bold; color: #555; }
+    select { width: 100%; padding: 12px; margin-top: 5px; font-size: 16px; font-weight: bold; border: 1px solid #ccc; border-radius: 5px; background-color: #fff;}
+    button { width: 100%; padding: 15px; margin-top: 30px; font-size: 18px; font-weight: bold; background-color: #00B900; color: white; border: none; border-radius: 8px; cursor: pointer;}
+    button:disabled { background-color: #999 !important; cursor: not-allowed; }
+    .repair-btn { background-color: #E53935; }
+    #loading { text-align: center; color: #00B900; font-weight: bold; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="loading">載入資料中，請稍候...</div>
+    <div class="tabs">
+      <div id="tabStatus" class="tab active" onclick="switchMode('status')">👤 人員狀態回報</div>
+      <div id="tabRepair" class="tab tab-repair" onclick="switchMode('repair')">🚨 故障緊急通報</div>
+    </div>
+
+    <div id="statusFields">
+        <label>您的姓名/代號</label>
+        <select id="name"></select>
+        <label>目前狀態</label>
+        <select id="status">
+          <option value="值班待命">值班待命</option>
+          <option value="預檢作業中">預檢作業中</option>
+          <option value="故檢作業中">故檢作業中</option>
+          <option value="確認協助搶修前往">確認協助搶修前往</option>
+          <option value="未服勤/下班">未服勤/下班</option>
+        </select>
+    </div>
+
+    <label id="lineLabel">🚆 捷運路線</label>
+    <select id="lineFilter" onchange="filterStations()"></select>
+    <label id="stationLabel">所在車站</label>
+    <select id="station"></select>
+
+    <button id="submitBtn" onclick="submitForm()" disabled>送出</button>
+  </div>
+
+  <script>
+    // 🔥 這裡已經替換為您最新提供的 GAS API 與 LIFF ID
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbxmuhQ3f2WLuko3DM9QXm0ef_0mRA-vvba6vBdEaUxWnLWrfOUnNsrgtd1kCoNGtUHPYA/exec";
+    const LIFF_ID = "2010232004-IdtFLGrW";
+    
+    let stationsData = [];
+    let currentMode = 'status';
+
+    const lineConfig = {
+      'ALL': { name: '顯示全部車站', color: '#ffffff', text: '#333' },
+      'BR': { name: '文湖線 (Brown)', color: '#C48C31', text: '#fff' },
+      'R': { name: '淡水信義線 (Red)', color: '#E3002C', text: '#fff' },
+      'G': { name: '松山新店線 (Green)', color: '#008659', text: '#fff' },
+      'O': { name: '中和新蘆線 (Orange)', color: '#F8B61C', text: '#333' },
+      'BL': { name: '板南線 (Blue)', color: '#0070BD', text: '#fff' },
+      'OTHER': { name: '其他路線', color: '#888888', text: '#fff' }
+    };
+
+    async function initApp() {
+        try {
+            await liff.init({ liffId: LIFF_ID });
+            
+            // 從您的 GAS API 抓取 Google 試算表的資料
+            const res = await fetch(GAS_URL + "?action=getData");
+            const data = await res.json();
+            
+            const nameSelect = document.getElementById('name');
+            data.names.forEach(name => {
+                let opt = document.createElement('option');
+                opt.value = name; opt.text = name;
+                nameSelect.appendChild(opt);
+            });
+
+            const lineFilter = document.getElementById('lineFilter');
+            Object.keys(lineConfig).forEach(prefix => {
+                let opt = document.createElement('option');
+                opt.value = prefix; opt.text = lineConfig[prefix].name;
+                lineFilter.appendChild(opt);
+            });
+
+            stationsData = data.stations;
+            filterStations();
+
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').innerText = '送出回報';
+
+        } catch (err) {
+            document.getElementById('loading').innerText = "載入失敗，請確認網路連線或 API 設定";
+            console.error(err);
+        }
+    }
+
+    function filterStations() {
+        const prefix = document.getElementById('lineFilter').value;
+        const stationSelect = document.getElementById('station');
+        stationSelect.innerHTML = ''; 
+        const config = lineConfig[prefix] || lineConfig['ALL'];
+        
+        document.getElementById('lineFilter').style.backgroundColor = config.color;
+        document.getElementById('lineFilter').style.color = config.text;
+        stationSelect.style.backgroundColor = config.color;
+        stationSelect.style.color = config.text;
+        
+        stationsData.forEach(st => {
+            if (prefix === 'ALL' || st.prefix === prefix) {
+                let opt = document.createElement('option');
+                opt.value = st.name; opt.text = st.display;
+                opt.style.backgroundColor = "#fff"; opt.style.color = "#333";
+                stationSelect.appendChild(opt);
+            }
+        });
+    }
+
+    function switchMode(mode) {
+        currentMode = mode;
+        document.getElementById('tabStatus').classList.toggle('active', mode === 'status');
+        document.getElementById('tabRepair').classList.toggle('active', mode === 'repair');
+        document.getElementById('statusFields').style.display = mode === 'status' ? 'block' : 'none';
+        document.getElementById('stationLabel').innerText = mode === 'status' ? '所在車站' : '⚠️ 故障車站';
+        const btn = document.getElementById('submitBtn');
+        btn.innerText = mode === 'status' ? '送出回報' : '🚨 送出故障緊急通報';
+        mode === 'repair' ? btn.classList.add('repair-btn') : btn.classList.remove('repair-btn');
+    }
+
+    function submitForm() {
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.innerText = "處理中...";
+        const station = document.getElementById('station').value;
+
+        if (currentMode === 'status') {
+            // 打卡模式：寫入 Google 試算表
+            const name = document.getElementById('name').value;
+            const status = document.getElementById('status').value;
+            const url = `${GAS_URL}?action=update&name=${encodeURIComponent(name)}&status=${encodeURIComponent(status)}&station=${encodeURIComponent(station)}`;
+            
+            fetch(url)
+            .then(res => res.text())
+            .then(res => {
+                if (res === "SUCCESS") {
+                    btn.innerText = "✅ 打卡成功！";
+                    btn.style.backgroundColor = "#555";
+                    setTimeout(() => { if (liff.isInClient()) liff.closeWindow(); }, 1000);
+                } else {
+                    alert("更新失敗：" + res);
+                    btn.disabled = false;
+                    btn.innerText = "重新送出";
+                }
+            }).catch(err => {
+                alert("連線失敗：" + err);
+                btn.disabled = false;
+                btn.innerText = "重新送出";
+            });
+            
+        } else if (currentMode === 'repair') {
+            // 報修模式：透過 LIFF 代替使用者在聊天室發送文字
+            if (liff.isInClient()) {
+                liff.sendMessages([{ type: 'text', text: '報修 ' + station }])
+                .then(() => liff.closeWindow())
+                .catch((err) => {
+                    alert("傳送指令失敗：" + err);
+                    btn.disabled = false;
+                    btn.innerText = "重新送出";
+                });
+            } else {
+                alert("請在 LINE APP 中開啟此頁面，才能自動發送報修指令喔！");
+                btn.disabled = false;
+                btn.innerText = "重新送出";
+            }
+        }
+    }
+
+    // 啟動程式
+    initApp();
+  </script>
+</body>
+</html>
